@@ -4,6 +4,8 @@ package br.com.fiap.bancotranquilo;
 import br.com.fiap.bancotranquilo.controller.PaymentController;
 import br.com.fiap.bancotranquilo.dto.PaymentRequest;
 import br.com.fiap.bancotranquilo.dto.PaymentResponse;
+import br.com.fiap.bancotranquilo.exception.PaymentConflictException;
+import br.com.fiap.bancotranquilo.service.PaymentService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,145 +19,114 @@ import static org.mockito.Mockito.*;
 class PaymentControllerTest {
 
     private PaymentController paymentController;
+    private PaymentService paymentService;
 
     @BeforeEach
     void setUp() {
-        paymentController = new PaymentController();
+        paymentService = mock(PaymentService.class);
+        paymentController = new PaymentController(paymentService);
     }
 
     @Test
-    void shouldApprovePaymentBelowLimit() {
+    void shouldReturnApprovedPayment() {
 
-        PaymentRequest request = createRequest(
+        PaymentRequest request = new PaymentRequest(
                 1L,
-                "3200.00"
+                new BigDecimal("3200.00")
         );
+
+        PaymentResponse expected = new PaymentResponse(
+                "BT-123",
+                1L,
+                "APPROVED",
+                "Payment approved successfully"
+        );
+
+        when(paymentService.processPayment(request))
+                .thenReturn(expected);
 
         ResponseEntity<PaymentResponse> response =
                 paymentController.processPayment(request);
 
         assertEquals(200, response.getStatusCode().value());
+        assertEquals(expected, response.getBody());
 
-        assertNotNull(response.getBody());
-
-        assertEquals(
-                "APPROVED",
-                response.getBody().status()
-        );
-
-        assertEquals(
-                1L,
-                response.getBody().orderId()
-        );
+        verify(paymentService).processPayment(request);
     }
 
     @Test
-    void shouldApprovePaymentAtLimit() {
+    void shouldReturnDeclinedPayment() {
 
-        PaymentRequest request = createRequest(
+        PaymentRequest request = new PaymentRequest(
                 2L,
-                "5000.00"
+                new BigDecimal("6400.00")
         );
 
-        ResponseEntity<PaymentResponse> response =
-                paymentController.processPayment(request);
-
-        assertNotNull(response.getBody());
-
-        assertEquals(
-                "APPROVED",
-                response.getBody().status()
+        PaymentResponse expected = new PaymentResponse(
+                "BT-456",
+                2L,
+                "DECLINED",
+                "Payment declined by simulated bank"
         );
-    }
 
-    @Test
-    void shouldDeclinePaymentAboveLimit() {
-
-        PaymentRequest request = createRequest(
-                3L,
-                "6400.00"
-        );
+        when(paymentService.processPayment(request))
+                .thenReturn(expected);
 
         ResponseEntity<PaymentResponse> response =
                 paymentController.processPayment(request);
 
         assertEquals(200, response.getStatusCode().value());
+        assertEquals(expected, response.getBody());
+    }
 
-        assertNotNull(response.getBody());
+    @Test
+    void shouldReturnSameTransactionForRepeatedRequest() {
 
-        assertEquals(
-                "DECLINED",
-                response.getBody().status()
-        );
-
-        assertEquals(
+        PaymentRequest request = new PaymentRequest(
                 3L,
-                response.getBody().orderId()
+                new BigDecimal("1000.00")
         );
 
-        assertEquals(
-                "Payment declined by simulated bank",
-                response.getBody().message()
+        PaymentResponse expected = new PaymentResponse(
+                "BT-SAME",
+                3L,
+                "APPROVED",
+                "Payment approved successfully"
         );
+
+        when(paymentService.processPayment(request))
+                .thenReturn(expected);
+
+        PaymentResponse first =
+                paymentController.processPayment(request).getBody();
+
+        PaymentResponse second =
+                paymentController.processPayment(request).getBody();
+
+        assertNotNull(first);
+        assertEquals(first, second);
+        assertEquals(first.transactionId(), second.transactionId());
+
+        verify(paymentService, times(2))
+                .processPayment(request);
     }
 
     @Test
-    void shouldGenerateTransactionId() {
+    void shouldPropagatePaymentConflict() {
 
-        PaymentRequest request = createRequest(
+        PaymentRequest request = new PaymentRequest(
                 4L,
-                "1000.00"
+                new BigDecimal("2000.00")
         );
 
-        ResponseEntity<PaymentResponse> response =
-                paymentController.processPayment(request);
+        when(paymentService.processPayment(request))
+                .thenThrow(new PaymentConflictException(
+                        "Order already has a payment with a different amount"
+                ));
 
-        assertNotNull(response.getBody());
-
-        String transactionId =
-                response.getBody().transactionId();
-
-        assertNotNull(transactionId);
-
-        assertTrue(transactionId.startsWith("BT-"));
-    }
-
-    @Test
-    void shouldGenerateDifferentTransactionIds() {
-
-        PaymentRequest request = createRequest(
-                5L,
-                "3200.00"
+        assertThrows(
+                PaymentConflictException.class,
+                () -> paymentController.processPayment(request)
         );
-
-        ResponseEntity<PaymentResponse> first =
-                paymentController.processPayment(request);
-
-        ResponseEntity<PaymentResponse> second =
-                paymentController.processPayment(request);
-
-        assertNotNull(first.getBody());
-        assertNotNull(second.getBody());
-
-        assertNotEquals(
-                first.getBody().transactionId(),
-                second.getBody().transactionId()
-        );
-    }
-
-    private PaymentRequest createRequest(
-            Long orderId,
-            String amount
-    ) {
-
-        PaymentRequest request = mock(PaymentRequest.class);
-
-        when(request.orderId()).thenReturn(orderId);
-
-        when(request.amount()).thenReturn(
-                new BigDecimal(amount)
-        );
-
-        return request;
     }
 }
