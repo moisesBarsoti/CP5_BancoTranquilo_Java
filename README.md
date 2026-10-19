@@ -4,6 +4,33 @@ API REST de simulação de pagamentos bancários desenvolvida com **Java 17**, *
 
 O serviço recebe solicitações de pagamento, registra a transação no banco de dados e devolve um resultado de aprovação ou recusa. A principal característica é a **idempotência persistente por pedido**: repetir a mesma solicitação não cria outra transação bancária.
 
+
+## Acesso ao projeto
+
+| Recurso | Link ou endereço |
+| --- | --- |
+| Código do BancoTranquilo | [Repositório no GitHub](https://github.com/moisesBarsoti/CP5_BancoTranquilo_Java) |
+| MercadoExpress (aplicação principal) | [Repositório no GitHub](https://github.com/moisesBarsoti/CP5_Java_MercadoExpress) |
+| MercadoExpress no Render | [Abrir aplicação](https://mercadoexpress-cp5.onrender.com) |
+| BancoTranquilo local | `http://127.0.0.1:8081` |
+
+> O deploy público do MercadoExpress demonstra autenticação e gerenciamento de produtos. O processamento assíncrono de pedidos com RabbitMQ e o BancoTranquilo foram testados no ambiente local e **não estão ativos nesse deploy público**. O BancoTranquilo não possui deploy público próprio neste repositório.
+
+## Visão geral da integração
+
+```mermaid
+flowchart LR
+    A[MercadoExpress: pedidos] --> B[RabbitMQ: solicitação de pagamento]
+    B --> C[Consumidor no MercadoExpress]
+    C -->|HTTP POST /api/payments| D[BancoTranquilo]
+    D --> E[(PostgreSQL: bank_payments)]
+    D -->|APPROVED ou DECLINED| C
+    C --> F[RabbitMQ: resultado do pagamento]
+    F --> G[MercadoExpress: atualiza pedido]
+```
+
+A mensagem é publicada e consumida pelo **MercadoExpress**; o **BancoTranquilo** recebe a requisição pela API HTTP. Isso evita atribuir ao segundo serviço uma conexão direta com o RabbitMQ que ele não implementa.
+
 ## Tecnologias
 
 - Java 17 (versão de compilação do projeto)
@@ -176,6 +203,15 @@ O teste de inicialização de contexto (`BancoTranquiloApplicationTests`) requer
 | **Total** | **11** | **0 falhas e 0 erros** |
 
 Também foram realizados testes manuais com pagamentos aprovados, repetição de solicitações, conflitos de valor e concorrência.
+
+
+## Como reproduzir e documentar os testes
+
+Com o BancoTranquilo em execução, você pode demonstrar os cenários da seção [Endpoint de pagamento](#endpoint-de-pagamento), de preferência pelo Postman ou por outro terminal. Para registrar as evidências visuais, capture: uma aprovação (`APPROVED`), uma recusa (`DECLINED`), uma requisição repetida retornando o mesmo `transactionId`, uma tentativa com valor alterado retornando HTTP `409`, a consulta aos registros em `bank_payments` e o relatório dos 11 testes automatizados.
+
+Salve os prints em `docs/images/` com estes nomes, para adicioná-los ao README posteriormente: `01-pagamento-aprovado.png`, `02-pagamento-recusado.png`, `03-idempotencia.png`, `04-conflito.png`, `05-banco-dados.png` e `06-testes.png`. **A versão atual do projeto ainda não inclui essas imagens**; portanto, esta documentação não contém links de imagem que ficariam quebrados.
+
+Ao capturar telas, oculte senhas, tokens, variáveis privadas e URLs de conexão com credenciais.
 
 ## Observações
 
